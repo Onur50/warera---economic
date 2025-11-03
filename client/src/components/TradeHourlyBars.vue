@@ -29,7 +29,6 @@ const rawRows = ref([])
 const selectedItem = ref('')
 const availableItems = ref([])
 const chartBoxEl = ref(null)
-const isFullscreen = ref(false)
 const theme = ref('light') // 'dark' | 'light'
 const volumeColor = ref('#42b883')
 const priceColor = ref('#646cff')
@@ -257,27 +256,7 @@ const volumeChartOptions = computed(() => {
   }
 })
 
-function toggleFullscreen() {
-  const el = chartBoxEl.value
-  if (!el) return
-  if (!document.fullscreenElement) {
-    if (el.requestFullscreen) el.requestFullscreen()
-  } else {
-    if (document.exitFullscreen) document.exitFullscreen()
-  }
-}
-
-function onFsChange() {
-  isFullscreen.value = !!document.fullscreenElement
-}
-
-onMounted(() => {
-  document.addEventListener('fullscreenchange', onFsChange)
-})
-
-onUnmounted(() => {
-  document.removeEventListener('fullscreenchange', onFsChange)
-})
+// tam ekran özelliği kaldırıldı
 </script>
 
 <template>
@@ -292,7 +271,7 @@ onUnmounted(() => {
           <option v-for="it in availableItems" :key="it" :value="it">{{ it }}</option>
         </select>
       </div>
-      <button class="fs-btn" type="button" @click="toggleFullscreen">⤢ Tam Ekran</button>
+      
       <button class="theme-btn" type="button" @click="theme = theme==='dark' ? 'light' : 'dark'">{{ theme==='dark' ? '☀️' : '🌙' }}</button>
       <input class="color" type="color" v-model="volumeColor" title="Hacim Rengi" />
       <input class="color" type="color" v-model="priceColor" title="Ortalama Fiyat Rengi" />
@@ -301,7 +280,6 @@ onUnmounted(() => {
     </div>
 
     <div class="chart-box" :class="theme==='dark' ? 'dark' : 'light'" ref="chartBoxEl">
-      <button v-if="isFullscreen" class="fs-exit" type="button" @click="toggleFullscreen">✖</button>
       <Bar v-if="displayMode==='combined'" :data="chartData" :options="chartOptions" />
       <div v-else class="split">
         <div class="pane price">
@@ -323,24 +301,27 @@ onUnmounted(() => {
   padding: 16px;
 }
 .controls {
+  position: fixed;
+  top: 12px;
+  left: 12px;
+  z-index: 1000;
   display: flex;
-  gap: 16px;
-  flex-wrap: wrap;
+  flex-direction: row;
+  gap: 8px;
+  align-items: center;
 }
-.file-label, .select-label {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  font-weight: 600;
-}
+.file-label, .select-label { display: flex; flex-direction: column; gap: 4px; font-weight: 600; }
 .chart-box {
   position: relative;
   width: 100%;
-  height: 560px;
+  height: clamp(320px, 50vh, 560px);
   background: #101014;
   border: 1px solid #2a2a2e;
   border-radius: 8px;
+  margin-top: 62px;
   padding: 8px;
+  margin-right: 5px;
+  margin-left: -17px; /* az sola kaydır */
 }
 .chart-box.light {
   background: #ffffff;
@@ -354,59 +335,57 @@ onUnmounted(() => {
 }
 .pane { position: relative; }
 input[type="file"], select {
-  padding: 8px;
+  padding: 3px 6px;
   background: #1a1a1e;
   border: 1px solid #2a2a2e;
   border-radius: 6px;
   color: #eaeaf0;
+  font-size: 12px;
 }
-.fs-btn {
-  padding: 8px 12px;
-  background: #1a1a1e;
-  border: 1px solid #2a2a2e;
-  color: #eaeaf0;
-  border-radius: 6px;
-  cursor: pointer;
-}
+/* tam ekran butonu kaldırıldı */
 .theme-btn {
-  padding: 8px 12px;
+  padding: 3px 6px;
   background: #1a1a1e;
   border: 1px solid #2a2a2e;
   color: #eaeaf0;
   border-radius: 6px;
   cursor: pointer;
+  font-size: 12px;
 }
-.fs-exit {
-  position: absolute;
-  top: 8px;
-  right: 8px;
-  background: rgba(0,0,0,0.5);
-  color: #fff;
-  border: 1px solid rgba(255,255,255,0.2);
-  border-radius: 6px;
-  padding: 4px 8px;
-  cursor: pointer;
-}
+/* tam ekran çıkış butonu kaldırıldı */
 
-.color {
-  width: 38px;
-  height: 38px;
-  padding: 0;
-  background: transparent;
-  border: 1px solid #2a2a2e;
-  border-radius: 6px;
-}
+.color { width: 28px; height: 28px; padding: 0; background: transparent; border: 1px solid #2a2a2e; border-radius: 4px; }
 
-.mode-btn {
-  padding: 8px 12px;
-  background: #1a1a1e;
-  border: 1px solid #2a2a2e;
-  color: #eaeaf0;
-  border-radius: 6px;
-  cursor: pointer;
-}
+.mode-btn { padding: 3px 6px; background: #1a1a1e; border: 1px solid #2a2a2e; color: #eaeaf0; border-radius: 6px; cursor: pointer; font-size: 12px; }
 .mode-btn.active { background: #2a2a2e; }
 
+</style>
+
+<style scoped>
+/* Responsive yerleşimler */
+@media (min-width: 1440px) { .chart-box { height: clamp(420px, 58vh, 680px); } }
+
+@media (max-width: 1024px) {
+  .chart-box { height: clamp(300px, 48vh, 520px); }
+  .controls { top: 12px; left: 12px; gap: 6px; }
+}
+
+@media (max-width: 768px) {
+  .wrapper { padding: 8px; }
+  .chart-box { height: clamp(280px, 46vh, 460px); margin-left: -8px; }
+  .controls { top: auto; bottom: 12px; left: 12px; right: auto; gap: 6px; flex-wrap: wrap; }
+  input[type="file"], select { font-size: 11px; padding: 4px 6px; }
+  .theme-btn, .mode-btn { font-size: 11px; padding: 3px 6px; }
+  .color { width: 26px; height: 26px; }
+}
+
+@media (max-width: 480px) {
+  .chart-box { height: clamp(260px, 44vh, 400px); margin-left: -6px; }
+  .controls { bottom: 8px; left: 8px; right: auto; gap: 4px; }
+  input[type="file"], select { font-size: 10px; padding: 3px 5px; }
+  .theme-btn, .mode-btn { font-size: 10px; padding: 3px 5px; }
+  .color { width: 24px; height: 24px; }
+}
 </style>
 
 
