@@ -98,14 +98,81 @@ const hourlyBuckets = computed(() => {
   return perHour
 })
 
+const currentGrouping = computed(() => {
+  const perHour = aggregate(filtered.value, 1)
+  if (perHour.length > 300) return '24h'
+  if (perHour.length > 30) return '4h'
+  return '1h'
+})
+
 function toDayLabel(iso) {
   const d = new Date(iso)
-  return String(d.getUTCDate()).padStart(2, '0')
+  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+  const m = months[d.getUTCMonth()]
+  const day = d.getUTCDate()
+  return `${m} ${day}`
 }
 
 const labels = computed(() => hourlyBuckets.value.map(([, v]) => toDayLabel(v.firstIso)))
 const totalVolumes = computed(() => hourlyBuckets.value.map(([, v]) => v.totalAmount))
 const avgPrices = computed(() => hourlyBuckets.value.map(([, v]) => v.totalAmount > 0 ? v.totalMoney / v.totalAmount : 0))
+
+// Overall averages for right-side summary panel
+const overallAveragePrice = computed(() => {
+  const rows = filtered.value
+  let money = 0
+  let amount = 0
+  for (const r of rows) {
+    money += r.money
+    amount += r.amount
+  }
+  return amount > 0 ? money / amount : 0
+})
+
+function groupByUtcDay(rows) {
+  const map = new Map()
+  for (const r of rows) {
+    const d = new Date(r.dateIso)
+    const key = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`
+    if (!map.has(key)) map.set(key, 0)
+    map.set(key, map.get(key) + r.amount)
+  }
+  return Array.from(map.values())
+}
+
+function groupByUtcMonth(rows) {
+  const map = new Map()
+  for (const r of rows) {
+    const d = new Date(r.dateIso)
+    const key = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`
+    if (!map.has(key)) map.set(key, 0)
+    map.set(key, map.get(key) + r.amount)
+  }
+  return Array.from(map.values())
+}
+
+const averageVolumePerBucket = computed(() => {
+  const values = hourlyBuckets.value.map(([, v]) => v.totalAmount)
+  if (!values.length) return 0
+  return values.reduce((a, b) => a + b, 0) / values.length
+})
+
+const averageDailyVolume = computed(() => {
+  const dailyTotals = groupByUtcDay(filtered.value)
+  if (!dailyTotals.length) return 0
+  return dailyTotals.reduce((a, b) => a + b, 0) / dailyTotals.length
+})
+
+const averageVolumeLabel = computed(() => {
+  if (currentGrouping.value === '24h') return 'Avg Volume (day)'
+  if (currentGrouping.value === '4h') return 'Avg Volume (per 4h)'
+  return 'Avg Volume (per 1h)'
+})
+
+const averageVolumeDisplay = computed(() => {
+  if (currentGrouping.value === '24h') return averageDailyVolume.value
+  return averageVolumePerBucket.value
+})
 
 function hexWithAlpha(hex, alpha) {
   const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex)
@@ -124,7 +191,7 @@ const chartData = computed(() => {
     datasets: [
       {
         type: 'bar',
-        label: 'Toplam Hacim',
+        label: 'Total Volume',
         data: totalVolumes.value,
         yAxisID: 'y',
         backgroundColor: hexWithAlpha(vol, 0.75),
@@ -135,7 +202,7 @@ const chartData = computed(() => {
       },
       {
         type: 'line',
-        label: 'Ortalama Fiyat',
+        label: 'Average Price',
         data: avgPrices.value,
         yAxisID: 'y1',
         borderColor: price,
@@ -160,7 +227,7 @@ const priceChartData = computed(() => {
     datasets: [
       {
         type: 'line',
-        label: 'Ortalama Fiyat',
+        label: 'Average Price',
         data: avgPrices.value,
         borderColor: price,
         backgroundColor: price,
@@ -181,7 +248,7 @@ const volumeChartData = computed(() => {
     labels: labels.value,
     datasets: [
       {
-        label: 'Toplam Hacim',
+        label: 'Total Volume',
         data: totalVolumes.value,
         backgroundColor: hexWithAlpha(vol, 0.75),
         borderColor: vol,
@@ -207,7 +274,7 @@ const chartOptions = computed(() => {
     maintainAspectRatio: false,
     plugins: {
       legend: { position: 'top', labels: { color: labelColor } },
-      title: { display: true, text: 'Saatlik Toplam Hacim ve Ortalama Fiyat', color: titleColor } ,
+      title: { display: false, text: 'Hourly Total Volume and Average Price', color: titleColor, position: 'top', font: { size: 14, weight: 'bold' }, padding: { top: 8, bottom: 12 } } ,
       tooltip: {
         backgroundColor: ttBg,
         borderColor: ttBorder,
@@ -215,11 +282,11 @@ const chartOptions = computed(() => {
         titleColor: isDark ? '#0ff' : '#111',
         bodyColor: isDark ? '#eaeaf0' : '#111',
         callbacks: {
-          title: (items) => items?.[0]?.label ? `Gün: ${items[0].label}` : '',
+          title: (items) => items?.[0]?.label ? `${items[0].label}` : '',
           label: (ctx) => {
             const val = ctx.parsed?.y
             const label = ctx.dataset.label
-            if (label === 'Ortalama Fiyat') return `${label}: ${fmtPrice(val)}`
+            if (label === 'Average Price') return `${label}: ${fmtPrice(val)}`
             return `${label}: ${fmtNumber(val)}`
           }
         }
@@ -227,7 +294,7 @@ const chartOptions = computed(() => {
     },
     scales: {
       x: { stacked: false, ticks: { color: labelColor }, grid: { color: grid } },
-      y: { position: 'left', title: { display: true, text: 'Değer', color: labelColor }, ticks: { color: labelColor }, grid: { color: grid } }
+      y: { position: 'left', title: { display: true, text: 'Value', color: labelColor }, ticks: { color: labelColor }, grid: { color: grid } }
     }
   }
 })
@@ -236,10 +303,10 @@ const priceChartOptions = computed(() => {
   const base = chartOptions.value
   return {
     ...base,
-    plugins: { ...base.plugins, title: { display: true, text: 'Ortalama Fiyat', color: base.plugins.title.color } },
+    plugins: { ...base.plugins, title: { display: false, text: 'Average Price', color: base.plugins.title.color, position: 'top', font: { size: 14, weight: 'bold' }, padding: { top: 4, bottom: 8 } } },
     scales: {
       x: base.scales.x,
-      y: { ...base.scales.y, title: { display: true, text: 'Fiyat', color: base.scales.y.title.color }, ticks: { ...base.scales.y.ticks, callback: (v) => fmtPrice(v) } }
+      y: { ...base.scales.y, title: { display: true, text: 'Price', color: base.scales.y.title.color }, ticks: { ...base.scales.y.ticks, callback: (v) => fmtPrice(v) } }
     }
   }
 })
@@ -248,10 +315,10 @@ const volumeChartOptions = computed(() => {
   const base = chartOptions.value
   return {
     ...base,
-    plugins: { ...base.plugins, title: { display: true, text: 'Toplam Hacim', color: base.plugins.title.color } },
+    plugins: { ...base.plugins, title: { display: false, text: 'Total Volume', color: base.plugins.title.color, position: 'top', font: { size: 14, weight: 'bold' }, padding: { top: 4, bottom: 8 } } },
     scales: {
       x: base.scales.x,
-      y: { ...base.scales.y, title: { display: true, text: 'Hacim', color: base.scales.y.title.color }, ticks: base.scales.y.ticks }
+      y: { ...base.scales.y, title: { display: true, text: 'Volume', color: base.scales.y.title.color }, ticks: base.scales.y.ticks }
     }
   }
 })
@@ -280,13 +347,38 @@ const volumeChartOptions = computed(() => {
     </div>
 
     <div class="chart-box" :class="theme==='dark' ? 'dark' : 'light'" ref="chartBoxEl">
-      <Bar v-if="displayMode==='combined'" :data="chartData" :options="chartOptions" />
-      <div v-else class="split">
+    <template v-if="displayMode==='combined'">
+      <Bar :data="chartData" :options="chartOptions" />
+      <div class="stats-panel">
+        <div class="stat">
+          <div class="stat-label">Average Price</div>
+          <div class="stat-value">{{ fmtPrice(overallAveragePrice) }}</div>
+        </div>
+        <div class="divider"></div>
+        <div class="stat">
+          <div class="stat-label">{{ averageVolumeLabel }}</div>
+          <div class="stat-value">{{ fmtNumber(averageVolumeDisplay) }}</div>
+        </div>
+      </div>
+    </template>
+    <div v-else class="split">
         <div class="pane price">
           <Line :data="priceChartData" :options="priceChartOptions" />
+        <div class="stats-panel">
+          <div class="stat">
+            <div class="stat-label">Average Price</div>
+            <div class="stat-value">{{ fmtPrice(overallAveragePrice) }}</div>
+          </div>
+        </div>
         </div>
         <div class="pane volume">
           <Bar :data="volumeChartData" :options="volumeChartOptions" />
+        <div class="stats-panel">
+          <div class="stat">
+            <div class="stat-label">{{ averageVolumeLabel }}</div>
+            <div class="stat-value">{{ fmtNumber(averageVolumeDisplay) }}</div>
+          </div>
+        </div>
         </div>
       </div>
     </div>
@@ -314,7 +406,7 @@ const volumeChartOptions = computed(() => {
 .chart-box {
   position: relative;
   width: 100%;
-  height: clamp(320px, 50vh, 560px);
+  height: clamp(380px, 60vh, 680px);
   background: #101014;
   border: 1px solid #2a2a2e;
   border-radius: 8px;
@@ -327,6 +419,34 @@ const volumeChartOptions = computed(() => {
   background: #ffffff;
   border: 1px solid #dcdcdc;
 }
+.stats-panel {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 120px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: rgba(255,255,255,0.65);
+  color: #222;
+  border: 1px solid rgba(0,0,0,0.06);
+  box-shadow: 0 1px 6px rgba(0,0,0,0.06);
+  backdrop-filter: saturate(150%) blur(6px);
+  pointer-events: none;
+}
+.chart-box.dark .stats-panel {
+  background: rgba(18,18,22,0.55);
+  color: #eaeaf0;
+  border: 1px solid #2a2a2e;
+  box-shadow: 0 1px 8px rgba(0,0,0,0.35);
+}
+.stat { display: flex; flex-direction: column; }
+.stat-label { font-size: 11px; opacity: 0.9; }
+.stat-value { font-size: 13px; font-weight: 700; }
+.divider { height: 1px; background: rgba(0,0,0,0.08); }
+.chart-box.dark .divider { background: rgba(255,255,255,0.08); }
 .split {
   display: grid;
   grid-template-rows: 1fr 1fr;
@@ -363,28 +483,31 @@ input[type="file"], select {
 
 <style scoped>
 /* Responsive yerleşimler */
-@media (min-width: 1440px) { .chart-box { height: clamp(420px, 58vh, 680px); } }
+@media (min-width: 1440px) { .chart-box { height: clamp(520px, 66vh, 820px); } }
 
 @media (max-width: 1024px) {
-  .chart-box { height: clamp(300px, 48vh, 520px); }
+  .chart-box { height: clamp(340px, 56vh, 600px); }
   .controls { top: 12px; left: 12px; gap: 6px; }
 }
 
 @media (max-width: 768px) {
   .wrapper { padding: 8px; }
-  .chart-box { height: clamp(280px, 46vh, 460px); margin-left: -8px; }
+  .chart-box { height: clamp(320px, 54vh, 540px); margin-left: -8px; }
   .controls { top: auto; bottom: 12px; left: 12px; right: auto; gap: 6px; flex-wrap: wrap; }
   input[type="file"], select { font-size: 11px; padding: 4px 6px; }
   .theme-btn, .mode-btn { font-size: 11px; padding: 3px 6px; }
   .color { width: 26px; height: 26px; }
+  .stats-panel { top: 6px; right: 6px; min-width: 110px; padding: 6px 8px; gap: 4px; }
+  .stat-value { font-size: 12px; }
 }
 
 @media (max-width: 480px) {
-  .chart-box { height: clamp(260px, 44vh, 400px); margin-left: -6px; }
+  .chart-box { height: clamp(300px, 52vh, 480px); margin-left: -6px; }
   .controls { bottom: 8px; left: 8px; right: auto; gap: 4px; }
   input[type="file"], select { font-size: 10px; padding: 3px 5px; }
   .theme-btn, .mode-btn { font-size: 10px; padding: 3px 5px; }
   .color { width: 24px; height: 24px; }
+  .stats-panel { min-width: 100px; }
 }
 </style>
 
