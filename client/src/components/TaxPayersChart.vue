@@ -31,6 +31,7 @@ const topN = ref(20) // Show top N taxpayers
 const buyerIdInput = ref('')
 const allowedBuyerIds = ref([]) // Array of buyer IDs to filter
 const showBuyerIdsList = ref(false) // Toggle to show/hide buyer IDs list
+const filterMode = ref(false) // false = all buyers, true = filter by buyer IDs
 
 // Load buyer IDs from localStorage on mount
 onMounted(() => {
@@ -94,34 +95,48 @@ function onFileChange(e) {
 }
 
 // Group by Buyer Id and Buyer, sum total money (total wage)
-// Only include buyers from allowedBuyerIds list
+// Two modes: filter by buyer IDs or show all buyers
 const buyerTotals = computed(() => {
-  // If no buyer IDs specified, return empty
-  if (allowedBuyerIds.value.length === 0) {
-    return []
-  }
-  
   const map = new Map()
-  const allowedSet = new Set(allowedBuyerIds.value)
   
-  // Filter rows by allowed buyer IDs
-  for (const r of rawRows.value) {
-    // Only process if buyer ID is in allowed list
-    if (!allowedSet.has(r.buyerId)) {
-      continue
-    }
+  // If filter mode is enabled and buyer IDs are specified, filter by them
+  if (filterMode.value && allowedBuyerIds.value.length > 0) {
+    const allowedSet = new Set(allowedBuyerIds.value)
     
-    const key = `${r.buyerId}|${r.buyer}`
-    if (!map.has(key)) {
-      map.set(key, {
-        buyerId: r.buyerId,
-        buyer: r.buyer,
-        totalWage: 0,
-        taxPaid: 0
-      })
+    // Filter rows by allowed buyer IDs
+    for (const r of rawRows.value) {
+      // Only process if buyer ID is in allowed list
+      if (!allowedSet.has(r.buyerId)) {
+        continue
+      }
+      
+      const key = `${r.buyerId}|${r.buyer}`
+      if (!map.has(key)) {
+        map.set(key, {
+          buyerId: r.buyerId,
+          buyer: r.buyer,
+          totalWage: 0,
+          taxPaid: 0
+        })
+      }
+      const entry = map.get(key)
+      entry.totalWage += r.money
     }
-    const entry = map.get(key)
-    entry.totalWage += r.money
+  } else {
+    // Show all buyers (no filtering)
+    for (const r of rawRows.value) {
+      const key = `${r.buyerId}|${r.buyer}`
+      if (!map.has(key)) {
+        map.set(key, {
+          buyerId: r.buyerId,
+          buyer: r.buyer,
+          totalWage: 0,
+          taxPaid: 0
+        })
+      }
+      const entry = map.get(key)
+      entry.totalWage += r.money
+    }
   }
   
   // Calculate tax (10% of total wage)
@@ -233,7 +248,13 @@ const chartOptions = computed(() => {
       </div>
       
       <div class="buyer-ids-section">
-        <div class="buyer-id-input-group">
+        <div class="filter-mode-toggle">
+          <label class="toggle-label">
+            <input type="checkbox" v-model="filterMode" class="toggle-input" />
+            <span class="toggle-text">Filter by Buyer IDs</span>
+          </label>
+        </div>
+        <div v-if="filterMode" class="buyer-id-input-group">
           <input 
             type="text" 
             v-model="buyerIdInput" 
@@ -246,7 +267,7 @@ const chartOptions = computed(() => {
             {{ showBuyerIdsList ? 'Hide' : 'View' }}
           </button>
         </div>
-        <div v-if="showBuyerIdsList" class="buyer-ids-list">
+        <div v-if="filterMode && showBuyerIdsList" class="buyer-ids-list">
           <div v-for="id in allowedBuyerIds" :key="id" class="buyer-id-tag">
             <span>{{ id }}</span>
             <button class="remove-btn" @click="removeBuyerId(id)" type="button">×</button>
@@ -271,14 +292,17 @@ const chartOptions = computed(() => {
     <div class="chart-box" :class="theme==='dark' ? 'dark' : 'light'" ref="chartBoxEl">
       <Bar v-if="topTaxPayers.length > 0" :data="chartData" :options="chartOptions" />
       <div v-else class="empty-state">
-        <p v-if="allowedBuyerIds.length === 0">
+        <p v-if="filterMode && allowedBuyerIds.length === 0">
           Please add Buyer IDs to filter data
         </p>
         <p v-else-if="rawRows.length === 0">
           Please upload a CSV file to view tax payer data
         </p>
-        <p v-else>
+        <p v-else-if="filterMode">
           No tax data found for the specified Buyer IDs
+        </p>
+        <p v-else>
+          No tax data found
         </p>
       </div>
       
@@ -342,6 +366,26 @@ const chartOptions = computed(() => {
   border-radius: 6px;
   min-width: 200px;
   max-width: 300px;
+}
+.filter-mode-toggle {
+  display: flex;
+  align-items: center;
+}
+.toggle-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  font-size: 12px;
+  color: #eaeaf0;
+}
+.toggle-input {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+}
+.toggle-text {
+  user-select: none;
 }
 .buyer-id-input-group {
   display: flex;
