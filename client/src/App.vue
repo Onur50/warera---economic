@@ -14,7 +14,7 @@ const activeTab = ref('hourly')
         :class="{ active: activeTab === 'hourly' }"
         @click="activeTab = 'hourly'"
       >
-        Hourly Trade Data
+        Trade Data
       </button>
       <button 
         class="tab-btn" 

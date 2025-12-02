@@ -32,6 +32,7 @@ const buyerIdInput = ref('')
 const allowedBuyerIds = ref([]) // Array of buyer IDs to filter
 const showBuyerIdsList = ref(false) // Toggle to show/hide buyer IDs list
 const filterMode = ref(false) // false = all buyers, true = filter by buyer IDs
+const showAllInTable = ref(false) // awards table scope
 
 // Load buyer IDs from localStorage on mount
 onMounted(() => {
@@ -139,9 +140,9 @@ const buyerTotals = computed(() => {
     }
   }
   
-  // Calculate tax (10% of total wage)
+  // Calculate tax (12% of total wage)
   for (const entry of map.values()) {
-    entry.taxPaid = entry.totalWage * 0.1
+    entry.taxPaid = entry.totalWage * 0.12
   }
   
   // Convert to array, filter out those with no tax paid, and sort by tax paid (descending)
@@ -157,6 +158,33 @@ const topTaxPayers = computed(() => {
   return buyerTotals.value.slice(0, topN.value)
 })
 
+// Award helpers (renamed as medals)
+function awardForRank(rankIndex) {
+  // rankIndex: 0-based
+  if (rankIndex === 0) return { label: 'Efsane', emoji: '🏆', cls: 'legend' }
+  if (rankIndex === 1 || rankIndex === 2) return { label: 'Elit', emoji: '🏅', cls: 'elite' }
+  if (rankIndex >= 3 && rankIndex <= 9) return { label: 'Usta', emoji: '🎖️', cls: 'pro' }
+  return { label: 'Katılımcı', emoji: '🎗️', cls: 'participant' }
+}
+
+// Rows for awards table (either topN or all based on toggle)
+const awardsTableRows = computed(() => {
+  const source = showAllInTable.value ? buyerTotals.value : topTaxPayers.value
+  return source.map((b, i) => {
+    const award = awardForRank(i)
+    return {
+      rank: i + 1,
+      buyerId: b.buyerId,
+      buyer: b.buyer,
+      totalWage: b.totalWage,
+      taxPaid: b.taxPaid,
+      awardLabel: award.label,
+      awardEmoji: award.emoji,
+      awardClass: award.cls
+    }
+  })
+})
+
 // Chart data
 const chartData = computed(() => {
   const top = topTaxPayers.value
@@ -164,7 +192,7 @@ const chartData = computed(() => {
     labels: top.map(t => t.buyer),
     datasets: [
       {
-        label: 'Tax Paid',
+        label: 'Ödenen Vergi',
         data: top.map(t => t.taxPaid),
         backgroundColor: barColor.value,
         borderColor: barColor.value,
@@ -201,6 +229,9 @@ const chartOptions = computed(() => {
     responsive: true,
     maintainAspectRatio: false,
     indexAxis: 'y', // Horizontal bars
+    layout: {
+      padding: { top: 84, right: 180, bottom: 8, left: 8 }
+    },
     plugins: {
       legend: { display: false },
       title: { display: false },
@@ -215,11 +246,10 @@ const chartOptions = computed(() => {
           label: (ctx) => {
             const val = ctx.parsed?.x
             const buyer = topTaxPayers.value[ctx.dataIndex]
-            if (!buyer) return `Tax: ${fmtMoney(val)}`
+            if (!buyer) return `${ctx.dataset?.label ?? ''}: ${fmtMoney(val)}`
             return [
-              `Tax Paid: ${fmtMoney(val)}`,
-              `Total Wage: ${fmtMoney(buyer.totalWage)}`,
-              `Buyer ID: ${buyer.buyerId}`
+              `Ödenen Vergi: ${fmtMoney(val)}`,
+              `Verilen Maaş: ${fmtMoney(buyer.totalWage)}`
             ]
           }
         }
@@ -227,12 +257,12 @@ const chartOptions = computed(() => {
     },
     scales: {
       x: {
-        title: { display: true, text: 'Tax Paid', color: labelColor },
-        ticks: { color: labelColor },
+        title: { display: true, text: 'Tutar', color: labelColor },
+        ticks: { color: labelColor, font: { size: 13 } },
         grid: { color: grid }
       },
       y: {
-        ticks: { color: labelColor },
+        ticks: { color: labelColor, font: { weight: 'bold', size: 13 } },
         grid: { color: grid, display: false }
       }
     }
@@ -326,6 +356,42 @@ const chartOptions = computed(() => {
           <div class="stat-label">Total Buyers</div>
           <div class="stat-value">{{ buyerTotals.length }}</div>
         </div>
+      </div>
+    </div>
+
+    <!-- Awards Table -->
+    <div v-if="buyerTotals.length > 0" class="awards-section">
+      <div class="awards-header">
+        <h3>Vergi Ödeyenler Tablosu</h3>
+      </div>
+
+      <div class="table-wrapper" :class="theme==='dark' ? 'dark' : 'light'">
+        <table class="award-table">
+          <colgroup>
+            <col class="col-rank" />
+            <col class="col-buyer" />
+            <col class="col-money" />
+            <col class="col-tax" />
+          </colgroup>
+          <thead>
+            <tr>
+              <th class="th-rank">#</th>
+              <th class="th-buyer">İşveren</th>
+              <th class="th-money">Verilen Maaş</th>
+              <th class="th-tax">Ödenen Vergi</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="row in awardsTableRows" :key="row.rank + '-' + row.buyer">
+              <td class="rank">{{ row.rank }}</td>
+              <td class="buyer">
+                <span class="name"><strong>{{ row.buyer }}</strong></span>
+              </td>
+              <td class="money">{{ fmtMoney(row.totalWage) }}</td>
+              <td class="money">{{ fmtMoney(row.taxPaid) }}</td>
+            </tr>
+          </tbody>
+        </table>
       </div>
     </div>
   </div>
@@ -580,6 +646,139 @@ input[type="file"] {
   border: 1px solid #2a2a2e;
   border-radius: 4px;
 }
+
+/* Awards table */
+.awards-section {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 4px;
+}
+.awards-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.awards-header h3 {
+  margin: 0;
+  font-size: 13px;
+  color: #eaeaf0;
+}
+.toggle-all {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #eaeaf0;
+  font-size: 11px;
+}
+.table-wrapper {
+  overflow: auto;
+  border: 1px solid #2a2a2e;
+  border-radius: 8px;
+  display: inline-block;
+  align-self: flex-start;
+  width: auto;
+  max-width: 640px;
+}
+.table-wrapper.light {
+  background: #ffffff;
+  border: 1px solid #dcdcdc;
+}
+.table-wrapper.dark {
+  background: #0f0f13;
+}
+.award-table {
+  width: auto;
+  border-collapse: collapse;
+  min-width: 456px;
+  table-layout: fixed;
+}
+.award-table th, .award-table td { box-sizing: border-box; }
+
+/* Fixed column widths to ensure perfect alignment */
+.award-table .col-rank { width: 36px; }
+.award-table .col-buyer { width: 180px; }
+.award-table .col-money { width: 120px; }
+.award-table .col-tax { width: 120px; }
+.award-table .col-award { width: 110px; }
+.award-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: rgba(26,26,30,0.9);
+  color: #eaeaf0;
+  text-align: left;
+  font-weight: 700;
+  font-size: 11px;
+  padding: 4px 8px;
+  border-bottom: 1px solid #2a2a2e;
+}
+.table-wrapper.light .award-table thead th {
+  background: #f8f9fa;
+  color: #222;
+  border-bottom: 1px solid #e9ecef;
+}
+.award-table thead th.th-rank { width: 36px; text-align: center; }
+.award-table thead th.th-buyer { width: 180px; }
+.award-table thead th.th-buyer { text-align: center; padding-left: 0; padding-right: 0; }
+.award-table thead th.th-money { width: 120px; text-align: right; font-variant-numeric: tabular-nums; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
+.award-table thead th.th-tax { width: 120px; text-align: right; font-variant-numeric: tabular-nums; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
+.award-table thead th.th-buyer { padding-left: 16px; }
+.award-table tbody td {
+  padding: 4px 8px;
+  font-size: 14px;
+  line-height: 1.15;
+  color: #eaeaf0;
+  border-bottom: 1px solid #1d1d22;
+}
+.table-wrapper.light .award-table tbody td {
+  color: #222;
+  border-bottom: 1px solid #f0f0f0;
+}
+.award-table tbody tr:hover {
+  background: rgba(255,255,255,0.03);
+}
+.table-wrapper.light .award-table tbody tr:hover {
+  background: rgba(0,0,0,0.03);
+}
+.award-table .rank { width: 36px; text-align: center; font-weight: 700; }
+.award-table .buyer { width: 180px; padding-left: 16px; }
+.award-table .money { width: 120px; text-align: right; font-variant-numeric: tabular-nums; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
+.award-table .buyer .name strong { font-size: 14px; }
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  font-weight: 700;
+  font-size: 10px;
+  border: 1px solid transparent;
+  background: #1a1a1e;
+  color: #eaeaf0;
+}
+.badge.legend {
+  background: linear-gradient(135deg, #1f2937, #111827);
+  color: #fbbf24;
+  border-color: #6b7280;
+}
+.badge.elite {
+  background: linear-gradient(135deg, #0f2d1f, #0b2419);
+  color: #86efac;
+  border-color: #34d399;
+}
+.badge.pro {
+  background: linear-gradient(135deg, #2b1d37, #1f1630);
+  color: #c4b5fd;
+  border-color: #8b5cf6;
+}
+.badge.participant {
+  background: #1f2937;
+  color: #93c5fd;
+  border-color: #3b82f6;
+}
 </style>
 
 <style scoped>
@@ -639,6 +838,7 @@ input[type="file"] {
   .stat-value {
     font-size: 12px;
   }
+  .award-table { min-width: 600px; }
 }
 
 @media (max-width: 480px) {
@@ -667,6 +867,7 @@ input[type="file"] {
   .stats-panel {
     min-width: 120px;
   }
+  .award-table { min-width: 520px; }
 }
 </style>
 
